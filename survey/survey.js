@@ -1,16 +1,16 @@
 import React, { useState } from 'react';
-import { ArrowRight, ArrowLeft } from 'lucide-react';
+import { ArrowRight, ArrowLeft, Save, Check, AlertCircle } from 'lucide-react';
 
-const colors = {
-  primary: '#6A6A4B',
-  text: '#3A3A3A',
-  highlight: '#FFFFD5',
-  white: '#ffffff'
-};
+// Root component wrapper
+const root = document.getElementById('survey-root');
+ReactDOM.render(<SurveyForm />, root);
 
-export default function CompleteSurvey() {
+function SurveyForm() {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState({});
+  const [isComplete, setIsComplete] = useState(false);
+  const [submitStatus, setSubmitStatus] = useState(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const questions = [
     {
@@ -100,43 +100,173 @@ export default function CompleteSurvey() {
     }
   ];
 
-  const currentQuestion = questions[currentQuestionIndex];
+  const submitSurveyData = async (data) => {
+    setIsSubmitting(true);
+    try {
+      // Replace with your actual API endpoint
+      const response = await fetch('https://api.zenoflo.com/survey/submit', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          timestamp: new Date().toISOString(),
+          data: data,
+          source: 'bot-mob-survey'
+        })
+      });
 
-  const handleAnswer = (answer) => {
-    setAnswers({
-      ...answers,
-      [currentQuestion.id]: answer
-    });
+      if (!response.ok) {
+        throw new Error('Submission failed');
+      }
+
+      setSubmitStatus('success');
+      return true;
+    } catch (error) {
+      console.error('Submission error:', error);
+      // Store failed submission in localStorage
+      const fallbackData = {
+        timestamp: new Date().toISOString(),
+        data: data,
+        id: Math.random().toString(36).substr(2, 9)
+      };
+      
+      const existingData = JSON.parse(localStorage.getItem('pendingSurveys') || '[]');
+      existingData.push(fallbackData);
+      localStorage.setItem('pendingSurveys', JSON.stringify(existingData));
+      
+      setSubmitStatus('error');
+      return false;
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
+  const handleAnswer = (answer) => {
+    setAnswers(prev => ({
+      ...prev,
+      [questions[currentQuestionIndex].id]: answer
+    }));
+  };
+
+  const handleNext = () => {
+    if (currentQuestionIndex === questions.length - 1) {
+      setIsComplete(true);
+    } else {
+      setCurrentQuestionIndex(prev => prev + 1);
+    }
+  };
+
+  const handlePrevious = () => {
+    setCurrentQuestionIndex(prev => Math.max(0, prev - 1));
+  };
+
+  const isValidAnswer = () => {
+    const currentAnswer = answers[questions[currentQuestionIndex].id];
+    return currentAnswer && (
+      typeof currentAnswer === 'string' ? currentAnswer.trim().length > 0 :
+      Array.isArray(currentAnswer) ? currentAnswer.length > 0 :
+      typeof currentAnswer === 'object' ? Object.values(currentAnswer).some(v => v) :
+      true
+    );
+  };
+
+  const Alert = ({ className, children }) => (
+    <div className={`p-4 rounded-lg ${className}`}>
+      {children}
+    </div>
+  );
+
+  const AlertDescription = ({ className, children }) => (
+    <p className={`ml-2 ${className}`}>
+      {children}
+    </p>
+  );
+
+  if (isComplete) {
+    return (
+      <div className="min-h-screen bg-gray-50 p-8">
+        <div className="max-w-2xl mx-auto bg-white rounded-lg shadow-lg p-8">
+          <div className="text-center mb-8">
+            <h2 className="text-2xl font-bold mb-4 text-gray-800">Survey Complete!</h2>
+            <p className="text-gray-600">Thank you for taking the time to complete our survey.</p>
+          </div>
+
+          {submitStatus === 'success' ? (
+            <Alert className="mb-6 bg-green-50 border-green-200">
+              <div className="flex items-center">
+                <Check className="w-4 h-4 text-green-600" />
+                <AlertDescription className="text-green-700">
+                  Your responses have been successfully submitted!
+                </AlertDescription>
+              </div>
+            </Alert>
+          ) : submitStatus === 'error' ? (
+            <Alert className="mb-6 bg-yellow-50 border-yellow-200">
+              <div className="flex items-center">
+                <AlertCircle className="w-4 h-4 text-yellow-600" />
+                <AlertDescription className="text-yellow-700">
+                  Your responses have been saved locally and will be submitted when connection is restored.
+                </AlertDescription>
+              </div>
+            </Alert>
+          ) : (
+            <button
+              onClick={() => submitSurveyData(answers)}
+              disabled={isSubmitting}
+              className={`w-full px-6 py-3 rounded-lg flex items-center justify-center gap-2 text-white ${
+                isSubmitting 
+                  ? 'bg-gray-400 cursor-not-allowed'
+                  : 'bg-blue-600 hover:bg-blue-700'
+              }`}
+            >
+              {isSubmitting ? (
+                <>
+                  <Save className="w-4 h-4 animate-spin" />
+                  Submitting...
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4" />
+                  Submit Responses
+                </>
+              )}
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   const renderQuestion = () => {
-    switch (currentQuestion.type) {
+    const question = questions[currentQuestionIndex];
+    
+    switch (question.type) {
       case 'text':
       case 'email':
       case 'tel':
       case 'url':
         return (
           <input
-            type={currentQuestion.type}
-            value={answers[currentQuestion.id] || ''}
+            type={question.type}
+            value={answers[question.id] || ''}
             onChange={(e) => handleAnswer(e.target.value)}
-            className="w-full p-3 border-2 rounded-lg"
-            style={{ borderColor: colors.primary }}
+            className="w-full p-3 border-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           />
         );
 
       case 'select':
         return (
           <div className="space-y-2">
-            {currentQuestion.options.map((option) => (
+            {question.options.map((option) => (
               <button
                 key={option}
                 onClick={() => handleAnswer(option)}
-                className="w-full p-3 text-left border-2 rounded-lg transition-colors"
-                style={{
-                  borderColor: answers[currentQuestion.id] === option ? colors.primary : '#ddd',
-                  backgroundColor: answers[currentQuestion.id] === option ? colors.highlight : colors.white
-                }}
+                className={`w-full p-3 text-left border-2 rounded-lg transition-colors ${
+                  answers[question.id] === option 
+                    ? 'border-blue-500 bg-blue-50'
+                    : 'border-gray-200 hover:border-blue-300'
+                }`}
               >
                 {option}
               </button>
@@ -147,16 +277,16 @@ export default function CompleteSurvey() {
       case 'multiSelect':
         return (
           <div className="space-y-2">
-            {currentQuestion.options.map((option) => (
+            {question.options.map((option) => (
               <label
                 key={option}
-                className="flex items-center p-3 border-2 rounded-lg cursor-pointer"
+                className="flex items-center p-3 border-2 rounded-lg cursor-pointer hover:bg-gray-50"
               >
                 <input
                   type="checkbox"
-                  checked={answers[currentQuestion.id]?.includes(option)}
+                  checked={answers[question.id]?.includes(option)}
                   onChange={(e) => {
-                    const currentAnswers = answers[currentQuestion.id] || [];
+                    const currentAnswers = answers[question.id] || [];
                     if (e.target.checked) {
                       handleAnswer([...currentAnswers, option]);
                     } else {
@@ -174,20 +304,20 @@ export default function CompleteSurvey() {
       case 'multiNumber':
         return (
           <div className="space-y-4">
-            {currentQuestion.fields.map((field) => (
+            {question.fields.map((field) => (
               <div key={field} className="space-y-1">
-                <label className="block text-sm font-medium">{field}</label>
+                <label className="block text-sm font-medium text-gray-700">{field}</label>
                 <input
                   type="number"
+                  min="0"
                   onChange={(e) => {
-                    const currentAnswers = answers[currentQuestion.id] || {};
+                    const currentAnswers = answers[question.id] || {};
                     handleAnswer({
                       ...currentAnswers,
                       [field]: e.target.value
                     });
                   }}
-                  className="w-full p-3 border-2 rounded-lg"
-                  style={{ borderColor: colors.primary }}
+                  className="w-full p-3 border-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
             ))}
@@ -202,52 +332,51 @@ export default function CompleteSurvey() {
   return (
     <div className="min-h-screen bg-gray-50 p-8">
       <div className="max-w-2xl mx-auto">
-        {/* Progress bar */}
         <div className="mb-8">
           <div className="h-2 bg-gray-200 rounded-full">
             <div
-              className="h-2 rounded-full transition-all duration-500"
+              className="h-2 bg-blue-500 rounded-full transition-all duration-500"
               style={{
-                width: `${((currentQuestionIndex + 1) / questions.length) * 100}%`,
-                backgroundColor: colors.primary
+                width: `${((currentQuestionIndex + 1) / questions.length) * 100}%`
               }}
             />
           </div>
-          <p className="mt-2 text-sm">
+          <p className="mt-2 text-sm text-gray-600">
             Question {currentQuestionIndex + 1} of {questions.length}
           </p>
         </div>
 
-        {/* Question card */}
         <div className="bg-white rounded-lg shadow-lg p-8">
-          <h2 className="text-2xl font-bold mb-6" style={{ color: colors.primary }}>
-            {currentQuestion.title}
+          <h2 className="text-2xl font-bold mb-6 text-gray-800">
+            {questions[currentQuestionIndex].title}
           </h2>
 
           {renderQuestion()}
 
-          {/* Navigation */}
           <div className="flex justify-between mt-8">
             <button
-              onClick={() => setCurrentQuestionIndex(prev => prev - 1)}
+              onClick={handlePrevious}
               disabled={currentQuestionIndex === 0}
-              className="px-6 py-2 rounded-lg flex items-center gap-2"
-              style={{
-                color: colors.primary,
-                opacity: currentQuestionIndex === 0 ? 0.5 : 1
-              }}
+              className={`px-6 py-2 rounded-lg flex items-center gap-2 ${
+                currentQuestionIndex === 0
+                  ? 'text-gray-400 cursor-not-allowed'
+                  : 'text-blue-600 hover:bg-blue-50'
+              }`}
             >
               <ArrowLeft className="w-4 h-4" />
               Previous
             </button>
 
             <button
-              onClick={() => setCurrentQuestionIndex(prev => prev + 1)}
-              disabled={currentQuestionIndex === questions.length - 1}
-              className="px-6 py-2 rounded-lg flex items-center gap-2 text-white"
-              style={{ backgroundColor: colors.primary }}
+              onClick={handleNext}
+              disabled={!isValidAnswer()}
+              className={`px-6 py-2 rounded-lg flex items-center gap-2 text-white ${
+                isValidAnswer()
+                  ? 'bg-blue-600 hover:bg-blue-700'
+                  : 'bg-gray-300 cursor-not-allowed'
+              }`}
             >
-              Next
+              {currentQuestionIndex === questions.length - 1 ? 'Complete' : 'Next'}
               <ArrowRight className="w-4 h-4" />
             </button>
           </div>
